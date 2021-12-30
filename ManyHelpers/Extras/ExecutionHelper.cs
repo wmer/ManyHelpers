@@ -23,7 +23,7 @@ namespace ManyHelpers.Extras {
             return finalTime;
         }
 
-        public async Task<string> CalculeTimeAsync(Func<Task> instrution) {
+        public async Task<string> CalculeTime(Func<Task> instrution) {
             var finalTime = "";
             var watchGlobal = System.Diagnostics.Stopwatch.StartNew();
 

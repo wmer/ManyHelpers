@@ -1,4 +1,5 @@
-﻿using ManyHelpers.Strings;
+﻿using ManyHelpers.API.Events;
+using ManyHelpers.Strings;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -16,9 +17,13 @@ namespace ManyHelpers.API {
         private string _mediaType;
         private string _baseAdress;
 
+        public event RequisitionEventHandler Requisition;
+        public event ResponseEventHandler Response;
+
 
         public CosumingHelper(string baseAdress) {
             _baseAdress = baseAdress;
+
             var handler = new HttpClientHandler {
                 ServerCertificateCustomValidationCallback = (requestMessage, certificate, chain, policyErrors) => true
             };
@@ -56,9 +61,16 @@ namespace ManyHelpers.API {
         }
 
         public CosumingHelper AddBasicAuthentication(string userName, string password) {
-            var authentication = Encoding.ASCII.GetBytes($"{userName}:{password}");
+            var authentication = StringHelper.Base64Encode($"{userName}:{password}");
 
-            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(authentication));
+            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", authentication);
+            return this;
+        }
+
+        public CosumingHelper AddBasicAuthentication(string token) {
+            var authentication = StringHelper.Base64Encode(token);
+
+            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", authentication);
             return this;
         }
 
@@ -67,20 +79,30 @@ namespace ManyHelpers.API {
             return this;
         }
 
-        public async Task<(T result, string statusCode, string message)> GetAssync<T>(string endPoint) {
+        public async Task<(T result, string statusCode, string message)> GetAsync<T>(string endPoint) {
             var callstr = $"{_baseAdress}{endPoint}";
             var response = await _client.GetAsync(callstr);
+
+            OnRequisition(this, new RequisitionEventArgs(endPoint, "GET", ""));
             return DeserializeResponse<T>(response);
         }
 
         public async Task<(TResult result, string statusCode, string message)> PostAsync<T, TResult>(string endPoint, T obj) {
             var url = $"{_baseAdress}{endPoint}";
-            var response = await _client.PostAsync(url, ObjectToHttpContent(obj));
+            var response = await _client.PostAsync(url, ObjectToHttpContent(obj, "POST", endPoint));
+            return DeserializeResponse<TResult>(response);
+        }
+
+        public async Task<(TResult result, string statusCode, string message)> PostWithFormDataAsync<TResult>(string endPoint, FormUrlEncodedContent obj) {
+            var response = await _client.PostAsync($"{_client.BaseAddress}{endPoint}", obj);
+            string json = JsonConvert.SerializeObject(obj, Formatting.Indented);
+            OnRequisition(this, new RequisitionEventArgs(endPoint, "POST", json));
+
             return DeserializeResponse<TResult>(response);
         }
 
         public async Task<(TResult result, string statusCode, string message)> PutAsync<T, TResult>(string endPoint, T obj) {
-            var response = await _client.PutAsync($"{_baseAdress}{endPoint}", ObjectToHttpContent(obj));
+            var response = await _client.PutAsync($"{_baseAdress}{endPoint}", ObjectToHttpContent(obj, "PUT", endPoint));
             return DeserializeResponse<TResult>(response);
         }
 
@@ -95,39 +117,43 @@ namespace ManyHelpers.API {
         }
 
 
-        public HttpContent ObjectToHttpContent(object obj) {
+        public HttpContent ObjectToHttpContent(object obj, string verb, string endpoint) {
             if (obj.GetType().IsPrimitive || obj.GetType() == typeof(string) || obj.GetType() == typeof(decimal)) {
                 return new StringContent(obj.ToString());
             }
 
             HttpContent httpContent = null;
             if (_mediaType == "application/json" || _mediaType == "multipart/form-data") {
-                httpContent = SerializeJson(obj, _mediaType);
+                httpContent = SerializeJson(obj, _mediaType, verb, endpoint);
             }
             if (_mediaType == "application/x-www-form-urlencoded") {
-                httpContent = FormUrlCOntent(obj);
+                httpContent = FormUrlCOntent(obj, verb, endpoint);
             }
 
             if (_mediaType == "application/xml") {
-                httpContent = SerializeXml(obj);
+                httpContent = SerializeXml(obj, verb, endpoint);
             }
 
             return httpContent;
         }
 
-        private static HttpContent FormUrlCOntent(object obj) {
+        private  HttpContent FormUrlCOntent(object obj, string verb, string endpoint) {
             string json = JsonConvert.SerializeObject(obj, Formatting.Indented);
+            OnRequisition(this, new RequisitionEventArgs(endpoint, verb, json));
+
             var dic = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
             var urlContent = new FormUrlEncodedContent(dic);
             return urlContent;
         }
 
-        private static HttpContent SerializeJson(object obj, string contentType) {
+        private HttpContent SerializeJson(object obj, string contentType, string verb, string endpoint) {
             string json = JsonConvert.SerializeObject(obj, Formatting.Indented);
+            OnRequisition(this, new RequisitionEventArgs(endpoint, verb, json));
+
             return new StringContent(json, Encoding.UTF8, contentType);
         }
 
-        private static HttpContent SerializeXml(object obj) {
+        private HttpContent SerializeXml(object obj, string verb, string endpoint) {
             var serializer = new XmlSerializer(obj.GetType());
             var xml = "";
 
@@ -138,6 +164,8 @@ namespace ManyHelpers.API {
                 }
             }
 
+
+            OnRequisition(this, new RequisitionEventArgs(endpoint, verb, xml));
             return new StringContent(xml, Encoding.UTF8, "application/xml");
         }
 
@@ -169,7 +197,19 @@ namespace ManyHelpers.API {
                 result = (default(T), statusCode, responseContent);
             }
 
+
+            OnResponse(this, new ResponseEventArgs("", "", statusCode, result.Item3));
+
             return result;
+        }
+
+
+        private void OnRequisition(object sender, RequisitionEventArgs e) {
+            Requisition?.Invoke(sender, e);
+        }
+
+        private void OnResponse(object sender, ResponseEventArgs e) {
+            Response?.Invoke(sender, e);
         }
     }
 }
