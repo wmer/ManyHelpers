@@ -14,7 +14,7 @@ namespace ManyHelpers.Extras {
             watchGlobal.Stop();
             var elapsedMsGlobal = watchGlobal.ElapsedMilliseconds;
             var tGlobal = TimeSpan.FromMilliseconds(elapsedMsGlobal);
-             finalTime = string.Format("{0:D2}h:{1:D2}m:{2:D2}s:{3:D3}ms",
+            finalTime = string.Format("{0:D2}h:{1:D2}m:{2:D2}s:{3:D3}ms",
                                     tGlobal.Hours,
                                     tGlobal.Minutes,
                                     tGlobal.Seconds,

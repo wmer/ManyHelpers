@@ -13,7 +13,7 @@ namespace ManyHelpers.Collection {
                         .ToList();
         }
 
-        public static string TostringList(this IEnumerable<string> list, string separator = ",", string surrounders = "") {
+        public static string TostringList(this IEnumerable<string> list, string separator = ", ", string surrounders = "") {
             var strArray = list.Select(x => $"{surrounders}{x}{surrounders}").ToArray();
             var str = string.Join(separator, strArray);
 
