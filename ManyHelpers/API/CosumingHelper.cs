@@ -210,7 +210,7 @@ namespace ManyHelpers.API {
                 } else {
                     return result;
                 }
-            } catch (Exception e) {
+            } catch {
                 result = (default(T), statusCode, responseContent, cabecario);
             }
 
