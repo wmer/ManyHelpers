@@ -1,4 +1,5 @@
-﻿using ManyHelpers.DataTables;
+﻿using ManyHelpers.Collection;
+using ManyHelpers.DataTables;
 using ManyHelpers.Events;
 using Newtonsoft.Json;
 using OfficeOpenXml;
@@ -337,6 +338,50 @@ namespace ManyHelpers.Excel {
             }
 
             return true;
+        }
+
+        public void SaveBase<T>(string fileName, IEnumerable<T> result, Action<ExcelPackage, DataTable> opt) {
+            try {
+                var i = 1;
+
+                var parts = result.SplitList(800000).ToList();
+
+                foreach (var prt in parts) {
+                    try {
+                        if (i > 1) {
+                            var filInfo = new FileInfo(fileName);
+                            var dir = filInfo.Directory;
+                            var name = filInfo.Name;
+                            fileName = $"{dir}\\Part_{i}_{name}";
+                        }
+
+                        Console.WriteLine($"Salvando {fileName}...");
+
+                        var json = JsonConvert.SerializeObject(prt, Formatting.Indented);
+                        DataTable dt = (DataTable)JsonConvert.DeserializeObject(json, (typeof(DataTable)));
+
+                        using (ExcelPackage pck = new ExcelPackage(new FileInfo(fileName))) {
+                            opt.Invoke(pck, dt);
+                            pck.Save();
+                        }
+
+
+                        Console.WriteLine($"{fileName} foi salvo!!");
+                    } catch (Exception e) {
+                        Console.WriteLine(e.Message);
+                        ExcelReaderEventHub.OnSaveError(null, new ExcelSaveErrorEventArgs(fileName, e.Message, e.StackTrace));
+                        OnSaveError(null, new ExcelSaveErrorEventArgs(fileName, e.Message, e.StackTrace));
+                    }
+
+
+                    i++;
+                }
+
+            } catch (Exception e) {
+                Console.WriteLine($"Um erro ocorreu: {e.Message}");
+                ExcelReaderEventHub.OnSaveError(null, new ExcelSaveErrorEventArgs(fileName, e.Message, e.StackTrace));
+                OnSaveError(null, new ExcelSaveErrorEventArgs(fileName, e.Message, e.StackTrace));
+            }
         }
 
         public bool CreateEmpty(string workSheetName, string fileName) {

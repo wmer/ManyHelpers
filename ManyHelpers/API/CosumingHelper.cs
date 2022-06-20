@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 using System.Xml.Serialization;
 
 namespace ManyHelpers.API {
-    public class CosumingHelper {
+    public class CosumingHelper : IDisposable {
         private HttpClient _client;
         private string _mediaType;
         private string _baseAdress;
@@ -31,7 +31,8 @@ namespace ManyHelpers.API {
             _client = new HttpClient(handler) {
                 BaseAddress = new Uri(baseAdress)
             };
-            _client.Timeout = TimeSpan.FromMinutes(30);
+
+            _client.Timeout = TimeSpan.FromMinutes(600);
             _client.DefaultRequestHeaders.CacheControl = new CacheControlHeaderValue { NoCache = true };
         }
 
@@ -79,21 +80,38 @@ namespace ManyHelpers.API {
             return this;
         }
 
-        public async Task<(T result, string statusCode, string message)> GetAsync<T>(string endPoint) {
+        public async Task<(T result, string statusCode, string message, HttpResponseHeaders cabecario)> GetAsync<T>(string endPoint, CancellationToken cancelationToken = default) {
             var callstr = $"{_baseAdress}{endPoint}";
-            var response = await _client.GetAsync(callstr);
+            var response = await _client.GetAsync(callstr, cancelationToken);
 
             OnRequisition(this, new RequisitionEventArgs(endPoint, "GET", ""));
             return DeserializeResponse<T>(response);
         }
 
-        public async Task<(TResult result, string statusCode, string message)> PostAsync<T, TResult>(string endPoint, T obj) {
+        public async Task<(TResult result, string statusCode, string message, HttpResponseHeaders cabecario)> GetAsync<T, TResult>(string endPoint, T obj) {
+            var callstr = $"{_baseAdress}{endPoint}";
+
+            using (var request = new HttpRequestMessage()) {
+                request.Method = HttpMethod.Get;
+                request.RequestUri = new Uri(callstr);
+                request.Content = ObjectToHttpContent(obj, "GET", endPoint);
+
+                var response = await _client.SendAsync(request);
+
+
+                OnRequisition(this, new RequisitionEventArgs(endPoint, "GET", ""));
+                return DeserializeResponse<TResult>(response);
+            }
+
+        }
+
+        public async Task<(TResult result, string statusCode, string message, HttpResponseHeaders cabecario)> PostAsync<T, TResult>(string endPoint, T obj) {
             var url = $"{_baseAdress}{endPoint}";
             var response = await _client.PostAsync(url, ObjectToHttpContent(obj, "POST", endPoint));
             return DeserializeResponse<TResult>(response);
         }
 
-        public async Task<(TResult result, string statusCode, string message)> PostWithFormDataAsync<TResult>(string endPoint, FormUrlEncodedContent obj) {
+        public async Task<(TResult result, string statusCode, string message, HttpResponseHeaders cabecario)> PostWithFormDataAsync<TResult>(string endPoint, FormUrlEncodedContent obj) {
             var response = await _client.PostAsync($"{_client.BaseAddress}{endPoint}", obj);
             string json = JsonConvert.SerializeObject(obj, Formatting.Indented);
             OnRequisition(this, new RequisitionEventArgs(endPoint, "POST", json));
@@ -101,7 +119,7 @@ namespace ManyHelpers.API {
             return DeserializeResponse<TResult>(response);
         }
 
-        public async Task<(TResult result, string statusCode, string message)> PutAsync<T, TResult>(string endPoint, T obj) {
+        public async Task<(TResult result, string statusCode, string message, HttpResponseHeaders cabecario)> PutAsync<T, TResult>(string endPoint, T obj) {
             var response = await _client.PutAsync($"{_baseAdress}{endPoint}", ObjectToHttpContent(obj, "PUT", endPoint));
             return DeserializeResponse<TResult>(response);
         }
@@ -123,21 +141,23 @@ namespace ManyHelpers.API {
             }
 
             HttpContent httpContent = null;
-            if (_mediaType == "application/json" || _mediaType == "multipart/form-data") {
-                httpContent = SerializeJson(obj, _mediaType, verb, endpoint);
-            }
-            if (_mediaType == "application/x-www-form-urlencoded") {
-                httpContent = FormUrlCOntent(obj, verb, endpoint);
-            }
 
-            if (_mediaType == "application/xml") {
-                httpContent = SerializeXml(obj, verb, endpoint);
+            switch (_mediaType) {
+                case "application/json" or "multipart/form-data":
+                    httpContent = SerializeJson(obj, _mediaType, verb, endpoint);
+                    break;
+                case "application/x-www-form-urlencoded":
+                    httpContent = FormUrlCOntent(obj, verb, endpoint);
+                    break;
+                case "application/xml":
+                    httpContent = SerializeXml(obj, verb, endpoint);
+                    break;
             }
 
             return httpContent;
         }
 
-        private  HttpContent FormUrlCOntent(object obj, string verb, string endpoint) {
+        private HttpContent FormUrlCOntent(object obj, string verb, string endpoint) {
             string json = JsonConvert.SerializeObject(obj, Formatting.Indented);
             OnRequisition(this, new RequisitionEventArgs(endpoint, verb, json));
 
@@ -169,32 +189,29 @@ namespace ManyHelpers.API {
             return new StringContent(xml, Encoding.UTF8, "application/xml");
         }
 
-        public (T result, string statusCode, string message) DeserializeResponse<T>(HttpResponseMessage response) {
+        public (T result, string statusCode, string message, HttpResponseHeaders cabecario) DeserializeResponse<T>(HttpResponseMessage response) {
             var responseContent = response.Content.ReadAsStringAsync().Result;
+            var cabecario = response.Headers;
             var statusCode = response.StatusCode.ToString();
-            var result = (default(T), statusCode, responseContent);
+            var result = (default(T), statusCode, responseContent, cabecario);
             try {
                 if (response.IsSuccessStatusCode) {
                     if (typeof(T).IsPrimitive || typeof(T) == typeof(string) || typeof(T) == typeof(decimal)) {
-                        result = ((T)Convert.ChangeType(responseContent, typeof(T)), statusCode, responseContent); ;
-                    }
-
-                    if (_mediaType == "application/json" || _mediaType == "multipart/form-data"|| _mediaType == "application/x-www-form-urlencoded") {
-                        result = (JsonConvert.DeserializeObject<T>(responseContent), statusCode, responseContent);
-                    }
-
-                    if (_mediaType == "application/xml") {
+                        result = ((T)Convert.ChangeType(responseContent, typeof(T)), statusCode, responseContent, cabecario); ;
+                    } else if (_mediaType is "application/json" or "multipart/form-data" or "application/x-www-form-urlencoded") {
+                        result = (JsonConvert.DeserializeObject<T>(responseContent), statusCode, responseContent, cabecario);
+                    } else if (_mediaType == "application/xml") {
                         var serializer = new XmlSerializer(typeof(T));
                         using (TextReader reader = new StringReader(responseContent)) {
-                            result = ((T)serializer.Deserialize(reader), statusCode, responseContent);
+                            result = ((T)serializer.Deserialize(reader), statusCode, responseContent, cabecario);
                         }
                     }
 
                 } else {
                     return result;
                 }
-            } catch(Exception e) {
-                result = (default(T), statusCode, responseContent);
+            } catch {
+                result = (default(T), statusCode, responseContent, cabecario);
             }
 
 
@@ -210,6 +227,10 @@ namespace ManyHelpers.API {
 
         private void OnResponse(object sender, ResponseEventArgs e) {
             Response?.Invoke(sender, e);
+        }
+
+        public void Dispose() {
+            _client.Dispose();
         }
     }
 }

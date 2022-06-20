@@ -8,6 +8,26 @@ using System.Text.RegularExpressions;
 
 namespace ManyHelpers.Strings {
     public class StringHelper {
+        public static string StringToCSVCell(string str) {
+            if (!string.IsNullOrEmpty(str)) {
+                bool mustQuote = (str.Contains(",") || str.Contains("\"") || str.Contains("\r") || str.Contains("\n"));
+                if (mustQuote) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.Append("\"");
+                    foreach (char nextChar in str) {
+                        sb.Append(nextChar);
+                        if (nextChar == '"')
+                            sb.Append("\"");
+                    }
+                    sb.Append("\"");
+                    return sb.ToString();
+                }
+            }
+   
+
+            return str;
+        }
+
         public static string GetOnlyPositiveNumbers(String str) {
             if (!string.IsNullOrEmpty(str)) {
                 StringBuilder sb = new StringBuilder();
@@ -46,16 +66,22 @@ namespace ManyHelpers.Strings {
                 int[] numbers = matches.Select(x => int.Parse(x.ToString())).ToArray();
                 return numbers;
             }
+
             return null;
         }
 
         public static string RemoveSpecialCharacters(String str, string except = "") {
-            var allowChars = @"0-9a-záéíóúàèìòùâêîôûãõç\s";
-            allowChars = allowChars += except;
-            string pattern = $"(?i)[^{allowChars}]";
-            string replacement = "";
-            Regex rgx = new Regex(pattern);
-            return rgx.Replace(str, replacement);
+            if (!string.IsNullOrEmpty(str)) {
+                StringBuilder sb = new StringBuilder();
+                foreach (char c in str) {
+                    if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == ' ' || except.Contains(c)) {
+                        sb.Append(c);
+                    }
+                }
+                return sb.ToString();
+            }
+     
+            return string.Empty;
         }
 
         public static string RemoveAccents(string str) {
@@ -383,23 +409,24 @@ namespace ManyHelpers.Strings {
         public static string ParseHTML(string html) {
             var messageParsed = html;
 
-            if (messageParsed.Contains("<html>") || messageParsed.Contains("<body>")) {
-                var doc = new HtmlDocument();
-                doc.LoadHtml(html);
-                if (html.Contains("<body>")) {
-                    var htmlBody = doc.DocumentNode.SelectSingleNode("//body");
-                    messageParsed = htmlBody.InnerText.Trim();
-                } else {
-                    var htmlBody = doc.DocumentNode;
-                    messageParsed = htmlBody.InnerText.Trim();
+            if (!string.IsNullOrEmpty(html)) {
+                if (messageParsed.Contains("<html>") || messageParsed.Contains("<body>")) {
+                    var doc = new HtmlDocument();
+                    doc.LoadHtml(html);
+                    if (html.Contains("<body>")) {
+                        var htmlBody = doc.DocumentNode.SelectSingleNode("//body");
+                        messageParsed = htmlBody.InnerText.Trim();
+                    } else {
+                        var htmlBody = doc.DocumentNode;
+                        messageParsed = htmlBody.InnerText.Trim();
+                    }
+
+
+                    byte[] bytes = Encoding.Default.GetBytes(messageParsed);
+                    messageParsed = Encoding.UTF8.GetString(bytes);
+                    messageParsed = System.Net.WebUtility.HtmlDecode(messageParsed);
                 }
-
-
-                byte[] bytes = Encoding.Default.GetBytes(messageParsed);
-                messageParsed = Encoding.UTF8.GetString(bytes);
-                messageParsed = System.Net.WebUtility.HtmlDecode(messageParsed);
             }
-
 
             return messageParsed;
         }
